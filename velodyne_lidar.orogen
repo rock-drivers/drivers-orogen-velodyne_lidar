@@ -1,0 +1,24 @@
+name "velodyne_lidar"
+# version "0.1"
+
+using_library "velodyne_lidar"
+using_library "aggregator"
+import_types_from "aggregator"
+import_types_from "base"
+import_types_from "velodyne_lidar/MultilevelLaserScan.h"
+
+task_context "Task" do
+   needs_configuration
+   fd_driven
+
+   property('timeout', 'int', 50).
+        doc 'the read timeout in milliseconds'
+
+   output_port("laser_scans", "velodyne_lidar::MultilevelLaserScan").
+        doc 'laserscans of the upper head'
+   
+   output_port("laser_scans_lower_head", "velodyne_lidar::MultilevelLaserScan").
+        doc 'laserscans of the lower head. Note: this output is only available on the Velodyne HDL-64E'
+
+   exception_states :IO_TIMEOUT, :IO_ERROR
+end
