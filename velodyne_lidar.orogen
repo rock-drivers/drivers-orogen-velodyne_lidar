@@ -7,7 +7,7 @@ import_types_from "aggregator"
 import_types_from "base"
 import_types_from "velodyne_lidar/MultilevelLaserScan.h"
 
-task_context "Task" do
+task_context "LaserScanner" do
    needs_configuration
    fd_driven
 
@@ -20,5 +20,5 @@ task_context "Task" do
    output_port("laser_scans_lower_head", "velodyne_lidar::MultilevelLaserScan").
         doc 'laserscans of the lower head. Note: this output is only available on the Velodyne HDL-64E'
 
-   exception_states :IO_TIMEOUT, :IO_ERROR
+   error_states :IO_ERROR, :IO_TIMEOUT
 end

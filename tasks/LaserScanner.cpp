@@ -1,27 +1,27 @@
 /* Generated from orogen/lib/orogen/templates/tasks/Task.cpp */
 
-#include "Task.hpp"
+#include "LaserScanner.hpp"
 
 #include <rtt/extras/FileDescriptorActivity.hpp>
 #include <aggregator/TimestampEstimator.hpp>
 
 using namespace velodyne_lidar;
 
-Task::Task(std::string const& name)
-    : TaskBase(name)
+LaserScanner::LaserScanner(std::string const& name)
+    : LaserScannerBase(name)
 {
 }
 
-Task::Task(std::string const& name, RTT::ExecutionEngine* engine)
-    : TaskBase(name, engine)
+LaserScanner::LaserScanner(std::string const& name, RTT::ExecutionEngine* engine)
+    : LaserScannerBase(name, engine)
 {
 }
 
-Task::~Task()
+LaserScanner::~LaserScanner()
 {
 }
 
-bool Task::isScanComplete(const base::Angle& current_angle, const Task::LaserHeadVariables& laser_vars) const
+bool LaserScanner::isScanComplete(const base::Angle& current_angle, const LaserScanner::LaserHeadVariables& laser_vars) const
 {    
     if(laser_vars.horizontal_scan_count > 1)
     {
@@ -35,7 +35,7 @@ bool Task::isScanComplete(const base::Angle& current_angle, const Task::LaserHea
     return false;
 }
 
-void Task::handleHorizontalScan(const velodyne_fire_t& horizontal_scan, Task::LaserHeadVariables& laser_vars)
+void LaserScanner::handleHorizontalScan(const velodyne_fire_t& horizontal_scan, LaserScanner::LaserHeadVariables& laser_vars)
 {
     base::Angle scan_angle = base::Angle::fromDeg(((double)horizontal_scan.rotational_pos) * 0.01);
     if(isScanComplete(scan_angle, laser_vars))
@@ -74,7 +74,7 @@ void Task::handleHorizontalScan(const velodyne_fire_t& horizontal_scan, Task::La
     laser_vars.last_sample_time = base::Time::now();
 }
 
-void Task::addDummyData(const base::Angle& next_angle, Task::LaserHeadVariables& laser_vars)
+void LaserScanner::addDummyData(const base::Angle& next_angle, LaserScanner::LaserHeadVariables& laser_vars)
 {
     if(laser_vars.horizontal_scan_count > 1)
     {
@@ -106,7 +106,7 @@ void Task::addDummyData(const base::Angle& next_angle, Task::LaserHeadVariables&
     }
 }
 
-bool Task::getFirstAngle(LaserHead head_pos, const velodyne_data_packet& new_scans, base::Angle& first_angle) const
+bool LaserScanner::getFirstAngle(LaserHead head_pos, const velodyne_data_packet& new_scans, base::Angle& first_angle) const
 {
     for(unsigned i = 0; i < VELODYNE_NUM_SHOTS; i++)
     {
@@ -120,7 +120,7 @@ bool Task::getFirstAngle(LaserHead head_pos, const velodyne_data_packet& new_sca
     return false;
 }
 
-void Task::createHorizontalDummy(const base::Angle& angle, Task::LaserHead head_pos, velodyne_fire_t& horizontal_scan) const
+void LaserScanner::createHorizontalDummy(const base::Angle& angle, LaserScanner::LaserHead head_pos, velodyne_fire_t& horizontal_scan) const
 {
     // set all 32 vertical scans to out of range
     for(unsigned i = 0; i < VELODYNE_NUM_LASERS; i++)
@@ -148,7 +148,7 @@ void Task::createHorizontalDummy(const base::Angle& angle, Task::LaserHead head_
 
 
 
-bool Task::configureHook()
+bool LaserScanner::configureHook()
 {
     if (! RTT::TaskContext::configureHook())
         return false;
@@ -161,7 +161,7 @@ bool Task::configureHook()
 
 
 
-bool Task::startHook()
+bool LaserScanner::startHook()
 {
     
     if (! RTT::TaskContext::startHook())
@@ -207,7 +207,7 @@ bool Task::startHook()
 
 
 
-void Task::updateHook()
+void LaserScanner::updateHook()
 {
     RTT::TaskContext::updateHook();
     
@@ -284,14 +284,14 @@ void Task::updateHook()
 
 
 
-void Task::errorHook()
+void LaserScanner::errorHook()
 {
     RTT::TaskContext::errorHook();
 }
 
 
 
-void Task::stopHook()
+void LaserScanner::stopHook()
 {
     RTT::TaskContext::stopHook();
     
@@ -300,7 +300,7 @@ void Task::stopHook()
 
 
 
-void Task::cleanupHook()
+void LaserScanner::cleanupHook()
 {
     RTT::TaskContext::cleanupHook();
     

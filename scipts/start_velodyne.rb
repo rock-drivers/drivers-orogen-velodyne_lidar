@@ -4,7 +4,7 @@ require 'orocos'
 include Orocos
 Orocos.initialize
 
-Orocos.run "velodyne_lidar::Task" => "velodyne" do 
+Orocos.run "velodyne_lidar::LaserScanner" => "velodyne" do 
     #Orocos.log_all_ports
     
     ## setup velodyne driver

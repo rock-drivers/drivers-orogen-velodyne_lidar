@@ -1,9 +1,9 @@
 /* Generated from orogen/lib/orogen/templates/tasks/Task.hpp */
 
-#ifndef VELODYNE_LIDAR_TASK_TASK_HPP
-#define VELODYNE_LIDAR_TASK_TASK_HPP
+#ifndef VELODYNE_LIDAR_LaserScanner_TASK_HPP
+#define VELODYNE_LIDAR_LaserScanner_TASK_HPP
 
-#include "velodyne_lidar/TaskBase.hpp"
+#include "velodyne_lidar/LaserScannerBase.hpp"
 #include <velodyne_lidar/velodyneDataDriver.hpp>
 
 namespace aggregator
@@ -27,9 +27,9 @@ namespace velodyne_lidar {
      \endverbatim
      *  It can be dynamically adapted when the deployment is called with a prefix argument. 
      */
-    class Task : public TaskBase
+    class LaserScanner : public LaserScannerBase
     {
-	friend class TaskBase;
+	friend class LaserScannerBase;
     
     enum LaserHead
     {
@@ -74,18 +74,18 @@ namespace velodyne_lidar {
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
          * \param initial_state The initial TaskState of the TaskContext. Default is Stopped state.
          */
-        Task(std::string const& name = "velodyne_lidar::Task");
+        LaserScanner(std::string const& name = "velodyne_lidar::LaserScanner");
 
         /** TaskContext constructor for Task 
          * \param name Name of the task. This name needs to be unique to make it identifiable for nameservices. 
          * \param engine The RTT Execution engine to be used for this task, which serialises the execution of all commands, programs, state machines and incoming events for a task. 
          * 
          */
-        Task(std::string const& name, RTT::ExecutionEngine* engine);
+        LaserScanner(std::string const& name, RTT::ExecutionEngine* engine);
 
         /** Default deconstructor of Task
          */
-	~Task();
+	~LaserScanner();
 
         /** This hook is called by Orocos when the state machine transitions
          * from PreOperational to Stopped. If it returns false, then the
