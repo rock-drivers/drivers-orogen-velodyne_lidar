@@ -6,6 +6,11 @@
   <license></license>
   <url>http://</url>
   <logo>http://</logo>
+  
+  <!-- PROJ.4 is required by GDAL to support long/lat to UTM convertions -->
+  <depend package="gdal"/>
+  <depend package="proj"/>
+  
   <depend package="drivers/velodyne_lidar"/>
   <depend package="base/types"/>
   <depends package="drivers/orogen/aggregator"/>

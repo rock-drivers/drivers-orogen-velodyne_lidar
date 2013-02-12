@@ -6,6 +6,7 @@ using_library "aggregator"
 import_types_from "aggregator"
 import_types_from "base"
 import_types_from "velodyne_lidar/MultilevelLaserScan.h"
+import_types_from "velodyne_lidar/gps_rmc_type.h"
 
 task_context "LaserScanner" do
    needs_configuration
@@ -21,4 +22,33 @@ task_context "LaserScanner" do
         doc 'laserscans of the lower head. Note: this output is only available on the Velodyne HDL-64E'
 
    error_states :IO_ERROR, :IO_TIMEOUT
+end
+
+task_context "Positioning" do
+    needs_configuration
+    fd_driven
+    
+    property("utm_zone", "int", 32).
+        doc "UTM zone for conversion of WGS84 to UTM"
+    property("utm_north", "bool", true).
+        doc "UTM north for conversion of WGS84 to UTM"
+    property("origin", "/base/Position").
+        doc "Origin in UTM coordinates, that is used for position readings." 
+    property('timeout', 'int', 50).
+        doc 'the read timeout in milliseconds'
+    
+    output_port('gps_raw_data', '/velodyne_lidar/GPS_RMC').
+            doc "the GPS raw data as reported by the hardware"
+
+    output_port('position_samples', '/base/samples/RigidBodyState').
+            doc "computed position in m, in the UTM coordinate provided and local to the origin"
+            
+    output_port('orientation_sensors_1', '/base/samples/IMUSensors').
+        doc 'provides the first raw set of orientation readings. 1-axis gryrometer and 2-axis accelerometer'
+    output_port('orientation_sensors_2', '/base/samples/IMUSensors').
+        doc 'provides the second raw set of orientation readings. 1-axis gryrometer and 2-axis accelerometer'
+    output_port('orientation_sensors_3', '/base/samples/IMUSensors').
+        doc 'provides the third raw set of orientation readings. 1-axis gryrometer and 2-axis accelerometer'
+
+    error_states :IO_ERROR, :IO_TIMEOUT
 end
