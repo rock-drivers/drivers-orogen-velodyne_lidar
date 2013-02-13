@@ -54,6 +54,9 @@ void LaserScanner::handleHorizontalScan(const velodyne_fire_t& horizontal_scan, 
         for(unsigned i = 0; i < laser_vars.horizontal_scan_count; i++)
         {
             laser_vars.output_scan.horizontal_scans[(laser_vars.horizontal_scan_count-1) - i].time = laser_vars.output_scan.time - base::Time::fromMicroseconds((int64_t)(time_between_scans_in_microseconds * i));
+            
+            // change horizontal angle direction. this is for standardization
+            laser_vars.output_scan.horizontal_scans[i].horizontal_angle = laser_vars.output_scan.horizontal_scans[i].horizontal_angle * -1.0;
         }
 
         // write sample to output port
