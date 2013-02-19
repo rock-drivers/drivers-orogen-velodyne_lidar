@@ -192,6 +192,8 @@ bool LaserScanner::startHook()
     last_gps_timestamp = 0;
     gps_timestamp_tolerance = 100;
     unsigned scans_per_turn = 2000; // upper guess
+    unsigned min_range = 1000; // 1m in mm
+    unsigned max_range = 70000; // 70m in mm
     
     // initiate head variables
     upper_head.timestamp_estimator->reset();
@@ -202,6 +204,10 @@ bool LaserScanner::startHook()
     lower_head.output_scan.horizontal_scans.reserve(scans_per_turn);
     upper_head.output_scan.time.microseconds = 0;
     lower_head.output_scan.time.microseconds = 0;
+    upper_head.output_scan.min_range = min_range;
+    upper_head.output_scan.max_range = max_range;
+    lower_head.output_scan.min_range = min_range;
+    lower_head.output_scan.max_range = max_range;
     upper_head.head_pos = UpperHead;
     lower_head.head_pos = LowerHead;
     
