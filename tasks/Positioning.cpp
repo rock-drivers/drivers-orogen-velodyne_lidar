@@ -142,7 +142,7 @@ void Positioning::updateHook()
             time(&local_time);
             struct tm* local_time_info = localtime(&local_time);
             // estimate timestamp in local time
-            base::Time timestamp = timestamp_estimator->update(gps_data.utc_time + base::Time::fromSeconds(local_time_info->tm_gmtoff));
+            base::Time timestamp = timestamp_estimator->update(gps_data.utc_time + base::Time::fromSeconds((int64_t)local_time_info->tm_gmtoff));
             
             // if there is a valid reading, then write it to position readings port
             if(gps_data.status == ValidPosition && gps_data.signal_mode != InvalidMode)
