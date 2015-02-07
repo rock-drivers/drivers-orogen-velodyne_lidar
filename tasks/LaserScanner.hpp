@@ -5,6 +5,8 @@
 
 #include "velodyne_lidar/LaserScannerBase.hpp"
 #include <velodyne_lidar/velodyneDataDriver.hpp>
+#include <base/samples/DepthMap.hpp>
+
 
 namespace aggregator
 {
@@ -29,6 +31,7 @@ namespace velodyne_lidar {
      */
     class LaserScanner : public LaserScannerBase
     {
+		
 	friend class LaserScannerBase;
     
     enum LaserHead
@@ -36,15 +39,22 @@ namespace velodyne_lidar {
         LowerHead,
         UpperHead
     };
+	
+	struct Buffer
+	{
+		typedef Eigen::Matrix<base::samples::DepthMap::scalar, Eigen::Dynamic, Eigen::Dynamic> CollectorMatrix;
+		CollectorMatrix distances, remissions;
+	};
                
     struct LaserHeadVariables
     {
         LaserHead head_pos;
-        MultilevelLaserScan output_scan;
         unsigned int horizontal_scan_count;
-        base::Time last_sample_time;
         aggregator::TimestampEstimator* timestamp_estimator;
-        
+		base::samples::DepthMap dmap;
+		Buffer buffer;
+		bool dismissedFirstScan;
+		
         LaserHeadVariables() : horizontal_scan_count(0), timestamp_estimator(NULL) {};
     };
     
@@ -61,14 +71,16 @@ namespace velodyne_lidar {
         LaserHeadVariables lower_head;
         
     protected:
-        bool isScanComplete(const base::Angle &current_angle, const LaserHeadVariables& laser_vars) const;
+        bool isScanComplete(const base::Angle &current_angle, const size_t horizontal_interval_size) const;
         void handleHorizontalScan(const velodyne_fire_t& horizontal_scan, LaserHeadVariables& laser_vars);
         void addDummyData(const base::Angle &next_angle, LaserHeadVariables& laser_vars);
         
     private:
         bool getFirstAngle(LaserHead head_pos, const velodyne_data_packet& new_scans, base::Angle& first_angle) const;
         void createHorizontalDummy(const base::Angle &angle, LaserHead head_pos, velodyne_fire_t& horizontal_scan) const;
-
+		void handleDataMapping(std::vector<base::samples::DepthMap::scalar> &target_container, Buffer::CollectorMatrix &source_container, uint32_t vertical_size, uint32_t horizontal_size);
+		void resetSample(LaserHeadVariables& laser_vars);
+		
     public:
         /** TaskContext constructor for Task
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
