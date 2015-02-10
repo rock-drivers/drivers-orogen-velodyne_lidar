@@ -15,6 +15,12 @@ task_context "LaserScanner" do
    property('timeout', 'int', 50).
         doc 'the read timeout in milliseconds'
 
+   property('min_range', 'double', 1.0).
+        doc 'Smaller scan ranges in meter are ignored'
+
+   property('max_range', 'double', 70.0).
+        doc 'Larger scan ranges in meter are ignored'
+
    output_port("laser_scans", "velodyne_lidar::MultilevelLaserScan").
         doc 'laserscans of the upper head'
    
