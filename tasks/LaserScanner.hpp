@@ -53,7 +53,6 @@ namespace velodyne_lidar {
         aggregator::TimestampEstimator* timestamp_estimator;
 		base::samples::DepthMap dmap;
 		Buffer buffer;
-		bool dismissedFirstScan;
 		
         LaserHeadVariables() : horizontal_scan_count(0), timestamp_estimator(NULL) {};
     };
@@ -71,7 +70,7 @@ namespace velodyne_lidar {
         LaserHeadVariables lower_head;
         
     protected:
-        bool isScanComplete(const base::Angle &current_angle, const size_t horizontal_interval_size) const;
+        bool isScanComplete(const LaserScanner::LaserHeadVariables& laser_vars, const base::Angle& current_angle) const;
         void handleHorizontalScan(const velodyne_fire_t& horizontal_scan, LaserHeadVariables& laser_vars);
         void addDummyData(const base::Angle &next_angle, LaserHeadVariables& laser_vars);
         

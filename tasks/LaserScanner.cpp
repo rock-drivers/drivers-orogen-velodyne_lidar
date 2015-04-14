@@ -23,41 +23,35 @@ LaserScanner::~LaserScanner()
 {
 }
 
-bool LaserScanner::isScanComplete(const base::Angle& current_angle, const size_t horizontal_interval_size) const
+bool LaserScanner::isScanComplete(const LaserScanner::LaserHeadVariables& laser_vars, const base::Angle& current_angle) const
 {    
-	//check if current angle crossed the 0 degree point considering horizontal resolution 
-	base::AngleSegment seg(base::Angle::fromDeg(-VELODYNE_HORIZONTAL_RESOLUTION/2), 
-						   base::Angle::deg2Rad(VELODYNE_HORIZONTAL_RESOLUTION));
-	return horizontal_interval_size > 1 && seg.isInside(current_angle);
+	//check if current angle crossed the last angle 
+	return (laser_vars.horizontal_scan_count > 1 && laser_vars.dmap.horizontal_interval.back() > 0 && current_angle.getRad() <= 0);
 }
 
 
 void LaserScanner::handleHorizontalScan(const velodyne_fire_t& horizontal_scan, LaserScanner::LaserHeadVariables& laser_vars)
 {
-    base::Angle scan_angle = base::Angle::fromDeg(360.0 - ((static_cast<double>(horizontal_scan.rotational_pos)) * 0.01));
+    base::Angle scan_angle = base::Angle::fromDeg(360.0 - (static_cast<double>(horizontal_scan.rotational_pos) * 0.01));
    	
-	if(isScanComplete(scan_angle, laser_vars.dmap.horizontal_interval.size()))
-    {
-		if(!laser_vars.dismissedFirstScan)
-			laser_vars.dismissedFirstScan = true;
-		else
-		{
-			laser_vars.dmap.horizontal_size = laser_vars.horizontal_scan_count;
+	if(isScanComplete(laser_vars, scan_angle))
+	{
+		laser_vars.dmap.horizontal_size = laser_vars.horizontal_scan_count;
 
-			//handle data mapping for distances
-			handleDataMapping(laser_vars.dmap.distances, laser_vars.buffer.distances, 
-						laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
-		
-			if(_use_remissions)
-				handleDataMapping(laser_vars.dmap.remissions, laser_vars.buffer.remissions, 
-						laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
-		
-			//write sample to output port
-			if(laser_vars.head_pos == UpperHead)
-				_laser_scans.write(laser_vars.dmap);
-			else
-				_laser_scans_lower_head.write(laser_vars.dmap);
-		}
+		//handle data mapping for distances
+		handleDataMapping(laser_vars.dmap.distances, laser_vars.buffer.distances, 
+					laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
+	
+		if(_use_remissions)
+			handleDataMapping(laser_vars.dmap.remissions, laser_vars.buffer.remissions, 
+					laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
+	
+		//write sample to output port
+		if(laser_vars.head_pos == UpperHead)
+			_laser_scans.write(laser_vars.dmap);
+		else
+			_laser_scans_lower_head.write(laser_vars.dmap);
+
 		resetSample(laser_vars);
 	}
     
@@ -100,7 +94,7 @@ void LaserScanner::addDummyData(const base::Angle& next_angle, LaserScanner::Las
             base::Angle last_angle = base::Angle::fromRad(laser_vars.dmap.horizontal_interval.back());
             base::Angle new_angle = next_angle;
             // limit the new angle if the scan is almost complete 
-            if(isScanComplete(next_angle, laser_vars.dmap.horizontal_interval.size()))
+            if(isScanComplete(laser_vars, next_angle))
                 new_angle = base::Angle::fromRad(laser_vars.dmap.horizontal_interval.front());
             
             base::Angle angular_gap = new_angle - last_angle;
@@ -212,8 +206,6 @@ bool LaserScanner::startHook()
     lower_head.horizontal_scan_count = 0;
     upper_head.head_pos = UpperHead;
     lower_head.head_pos = LowerHead;
-	upper_head.dismissedFirstScan = false;
-	lower_head.dismissedFirstScan = false;
 	
 	// initiate depthmap variables
 	upper_head.dmap.horizontal_projection = base::samples::DepthMap::POLAR;
