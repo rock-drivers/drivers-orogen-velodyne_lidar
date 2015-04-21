@@ -2,6 +2,7 @@
   <description brief="Orocos task for the Velodyne Lidar">
   
   </description>
+  <maintainer>Sascha Arnold/sascha.arnold@dfki.de</maintainer>
   <author>Sascha Arnold/sascha.arnold@dfki.de</author>
   <license></license>
   <url>http://</url>
