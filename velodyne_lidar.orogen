@@ -6,6 +6,13 @@ using_library "aggregator"
 import_types_from "aggregator"
 import_types_from "base"
 import_types_from "velodyne_lidar/gps_rmc_type.h"
+import_types_from "velodyne_lidar/MultilevelLaserScan.h"
+
+## Export deprecated MultilevelLaserScan type
+## in order to support backward compatibility.
+typekit do
+    export_types '/velodyne_lidar/MultilevelLaserScan'
+end
 
 task_context "LaserScanner" do
    needs_configuration
