@@ -7,9 +7,11 @@
 
 using namespace velodyne_lidar;
 
+
 LaserScanner::LaserScanner(std::string const& name)
     : LaserScannerBase(name)
 {
+
 }
 
 LaserScanner::LaserScanner(std::string const& name, RTT::ExecutionEngine* engine)
@@ -21,60 +23,64 @@ LaserScanner::~LaserScanner()
 {
 }
 
-bool LaserScanner::isScanComplete(const base::Angle& current_angle, const LaserScanner::LaserHeadVariables& laser_vars) const
+bool LaserScanner::isScanComplete(const LaserScanner::LaserHeadVariables& laser_vars, const base::Angle& current_angle) const
 {    
-    if(laser_vars.horizontal_scan_count > 1)
-    {
-        if(current_angle == laser_vars.output_scan.horizontal_scans[0].horizontal_angle ||
-           current_angle.isInRange(laser_vars.output_scan.horizontal_scans[0].horizontal_angle, 
-                                   laser_vars.output_scan.horizontal_scans[laser_vars.horizontal_scan_count-1].horizontal_angle))
-        {
-            return true;
-        }
-    }
-    return false;
+	//check if current angle crossed the last angle 
+	return (laser_vars.horizontal_scan_count > 1 && laser_vars.dmap.horizontal_interval.back() > 0 && current_angle.getRad() <= 0);
 }
+
 
 void LaserScanner::handleHorizontalScan(const velodyne_fire_t& horizontal_scan, LaserScanner::LaserHeadVariables& laser_vars)
 {
-    base::Angle scan_angle = base::Angle::fromDeg(((double)horizontal_scan.rotational_pos) * 0.01);
-    if(isScanComplete(scan_angle, laser_vars))
-    {
-        // resize the array of all scans to the actual count
-        laser_vars.output_scan.horizontal_scans.resize(laser_vars.horizontal_scan_count);
-        
-        // interpolate time between the actual and the last sample for all vertical scans
-        base::Time last_output_time = laser_vars.output_scan.time;
-        laser_vars.output_scan.time = laser_vars.timestamp_estimator->update(laser_vars.last_sample_time);
-        
-        if(last_output_time.microseconds == 0 || last_output_time > laser_vars.output_scan.time)
-            last_output_time = laser_vars.output_scan.time;
-        
-        double time_between_scans_in_microseconds = ((double)(laser_vars.output_scan.time - last_output_time).microseconds) / (double)laser_vars.horizontal_scan_count;
-        for(unsigned i = 0; i < laser_vars.horizontal_scan_count; i++)
-        {
-            laser_vars.output_scan.horizontal_scans[(laser_vars.horizontal_scan_count-1) - i].time = laser_vars.output_scan.time - base::Time::fromMicroseconds((int64_t)(time_between_scans_in_microseconds * i));
-            
-            // change horizontal angle direction. this is for standardization
-            laser_vars.output_scan.horizontal_scans[i].horizontal_angle = laser_vars.output_scan.horizontal_scans[i].horizontal_angle * -1.0;
-        }
+    base::Angle scan_angle = base::Angle::fromDeg(360.0 - (static_cast<double>(horizontal_scan.rotational_pos) * 0.01));
+   	
+	if(isScanComplete(laser_vars, scan_angle))
+	{
+		laser_vars.dmap.horizontal_size = laser_vars.horizontal_scan_count;
 
-        // write sample to output port
-        if(laser_vars.head_pos == UpperHead)
-            _laser_scans.write(laser_vars.output_scan);
-        else
-            _laser_scans_lower_head.write(laser_vars.output_scan);
-        laser_vars.horizontal_scan_count = 0;
-    }
+		//handle data mapping for distances
+		handleDataMapping(laser_vars.dmap.distances, laser_vars.buffer.distances, 
+					laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
+	
+		if(_use_remissions)
+			handleDataMapping(laser_vars.dmap.remissions, laser_vars.buffer.remissions, 
+					laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
+	
+		//write sample to output port
+		if(laser_vars.head_pos == UpperHead)
+			_laser_scans.write(laser_vars.dmap);
+		else
+			_laser_scans_lower_head.write(laser_vars.dmap);
 
-    // increase array size of horizontal scans if needed
-    if(laser_vars.horizontal_scan_count >= laser_vars.output_scan.horizontal_scans.size())
-        laser_vars.output_scan.horizontal_scans.resize(laser_vars.horizontal_scan_count + 1);
+		resetSample(laser_vars);
+	}
     
-    // add the new vertical scan to the output data
-    laserdriver.convertToVerticalMultilevelScan(horizontal_scan, laser_vars.output_scan.horizontal_scans[laser_vars.horizontal_scan_count]);
-    laser_vars.horizontal_scan_count++;
-    laser_vars.last_sample_time = base::Time::now();
+	laserdriver.collectColumn(horizontal_scan, laser_vars.buffer.distances, laser_vars.buffer.remissions, laser_vars.horizontal_scan_count, _use_remissions);
+	laser_vars.dmap.horizontal_interval.push_back(scan_angle.getRad());
+	laser_vars.dmap.timestamps.push_back(base::Time::now());
+	laser_vars.horizontal_scan_count++;
+}
+
+void LaserScanner::resetSample(LaserScanner::LaserHeadVariables& laser_vars)
+{
+	//reset current sample
+	laser_vars.horizontal_scan_count = 0;
+	laser_vars.dmap.horizontal_size = 0;
+	laser_vars.dmap.horizontal_interval.clear();
+	laser_vars.dmap.timestamps.clear();
+	laser_vars.dmap.distances.clear();
+	
+	if(_use_remissions)
+		laser_vars.dmap.remissions.clear();
+}
+
+
+void LaserScanner::handleDataMapping(std::vector<base::samples::DepthMap::scalar> &target_container, Buffer::CollectorMatrix &source_container, uint32_t vertical_size, uint32_t horizontal_size)
+{
+	source_container.conservativeResize(vertical_size, horizontal_size);
+	target_container.resize(horizontal_size * vertical_size);
+	base::samples::DepthMap::DepthMatrixMap (target_container.data(), vertical_size, horizontal_size) 
+		= Eigen::Map< Buffer::CollectorMatrix > (source_container.data(), vertical_size, horizontal_size);
 }
 
 void LaserScanner::addDummyData(const base::Angle& next_angle, LaserScanner::LaserHeadVariables& laser_vars)
@@ -82,14 +88,14 @@ void LaserScanner::addDummyData(const base::Angle& next_angle, LaserScanner::Las
     if(laser_vars.horizontal_scan_count > 1)
     {
         // get angular resolution of the first two scans
-        base::Angle angular_resolution = laser_vars.output_scan.horizontal_scans[1].horizontal_angle - laser_vars.output_scan.horizontal_scans[0].horizontal_angle;
+        base::Angle angular_resolution = base::Angle::fromRad(laser_vars.dmap.horizontal_interval.at(1) - laser_vars.dmap.horizontal_interval.front());
         if(angular_resolution.rad > 0.0)
         {
-            base::Angle last_angle = laser_vars.output_scan.horizontal_scans[laser_vars.horizontal_scan_count-1].horizontal_angle;
+            base::Angle last_angle = base::Angle::fromRad(laser_vars.dmap.horizontal_interval.back());
             base::Angle new_angle = next_angle;
             // limit the new angle if the scan is almost complete 
-            if(isScanComplete(next_angle, laser_vars))
-                new_angle = laser_vars.output_scan.horizontal_scans[0].horizontal_angle;
+            if(isScanComplete(laser_vars, next_angle))
+                new_angle = base::Angle::fromRad(laser_vars.dmap.horizontal_interval.front());
             
             base::Angle angular_gap = new_angle - last_angle;
             if(angular_gap.rad > 0.0)
@@ -116,7 +122,7 @@ bool LaserScanner::getFirstAngle(LaserHead head_pos, const velodyne_data_packet&
         if((head_pos == UpperHead && new_scans.shots[i].lower_upper == VELODYNE_UPPER_HEADER_BYTES) || 
            (head_pos == LowerHead && new_scans.shots[i].lower_upper == VELODYNE_LOWER_HEADER_BYTES))
         {
-            first_angle = base::Angle::fromDeg(((double)new_scans.shots[i].rotational_pos) * 0.01);
+            first_angle = base::Angle::fromDeg(360.0 - ((static_cast<double>(new_scans.shots[i].rotational_pos)) * 0.01));
             return true;
         }
     }
@@ -191,26 +197,43 @@ bool LaserScanner::startHook()
     last_packet_period = 1000000;
     last_gps_timestamp = 0;
     gps_timestamp_tolerance = 100;
-    unsigned scans_per_turn = 2000; // upper guess
-    unsigned min_range = _min_range.get() * 1000; // m to mm
-    unsigned max_range = _max_range.get() * 1000; // m to mm
+    static const uint SCANS_PER_TURN = 2200; // upper guess
     
     // initiate head variables
     upper_head.timestamp_estimator->reset();
     lower_head.timestamp_estimator->reset();
     upper_head.horizontal_scan_count = 0;
     lower_head.horizontal_scan_count = 0;
-    upper_head.output_scan.horizontal_scans.reserve(scans_per_turn);
-    lower_head.output_scan.horizontal_scans.reserve(scans_per_turn);
-    upper_head.output_scan.time.microseconds = 0;
-    lower_head.output_scan.time.microseconds = 0;
-    upper_head.output_scan.min_range = min_range;
-    upper_head.output_scan.max_range = max_range;
-    lower_head.output_scan.min_range = min_range;
-    lower_head.output_scan.max_range = max_range;
     upper_head.head_pos = UpperHead;
     lower_head.head_pos = LowerHead;
-    
+	
+	// initiate depthmap variables
+	upper_head.dmap.horizontal_projection = base::samples::DepthMap::POLAR;
+	lower_head.dmap.horizontal_projection = base::samples::DepthMap::POLAR;
+	upper_head.dmap.vertical_projection = base::samples::DepthMap::POLAR;
+	lower_head.dmap.vertical_projection = base::samples::DepthMap::POLAR;
+	upper_head.dmap.vertical_interval.push_back(base::Angle::deg2Rad(VELODYNE_VERTICAL_START_ANGLE));
+	lower_head.dmap.vertical_interval.push_back(base::Angle::deg2Rad(VELODYNE_VERTICAL_START_ANGLE));
+	upper_head.dmap.vertical_interval.push_back(base::Angle::deg2Rad(VELODYNE_VERTICAL_END_ANGLE));
+	lower_head.dmap.vertical_interval.push_back(base::Angle::deg2Rad(VELODYNE_VERTICAL_END_ANGLE));
+	upper_head.dmap.vertical_size = VELODYNE_NUM_LASERS;
+	lower_head.dmap.vertical_size = VELODYNE_NUM_LASERS;
+	
+	upper_head.dmap.distances.reserve(VELODYNE_NUM_LASERS * SCANS_PER_TURN);
+	lower_head.dmap.distances.reserve(VELODYNE_NUM_LASERS * SCANS_PER_TURN);
+
+    //init buffer
+    upper_head.buffer.distances = Buffer::CollectorMatrix(VELODYNE_NUM_LASERS, SCANS_PER_TURN);
+    lower_head.buffer.distances = Buffer::CollectorMatrix(VELODYNE_NUM_LASERS, SCANS_PER_TURN);
+	
+	if(_use_remissions)
+	{
+		upper_head.dmap.remissions.reserve(VELODYNE_NUM_LASERS * SCANS_PER_TURN);
+		lower_head.dmap.remissions.reserve(VELODYNE_NUM_LASERS * SCANS_PER_TURN);
+		upper_head.buffer.remissions = Buffer::CollectorMatrix(VELODYNE_NUM_LASERS, SCANS_PER_TURN);
+		lower_head.buffer.remissions = Buffer::CollectorMatrix(VELODYNE_NUM_LASERS, SCANS_PER_TURN);
+	}
+
     return true;
 }
 
@@ -316,4 +339,3 @@ void LaserScanner::cleanupHook()
     delete upper_head.timestamp_estimator;
     delete lower_head.timestamp_estimator;
 }
-

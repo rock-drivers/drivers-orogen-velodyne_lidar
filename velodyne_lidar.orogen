@@ -5,8 +5,14 @@ using_library "velodyne_lidar"
 using_library "aggregator"
 import_types_from "aggregator"
 import_types_from "base"
-import_types_from "velodyne_lidar/MultilevelLaserScan.h"
 import_types_from "velodyne_lidar/gps_rmc_type.h"
+import_types_from "velodyne_lidar/MultilevelLaserScan.h"
+
+## Export deprecated MultilevelLaserScan type
+## in order to support backward compatibility.
+typekit do
+    export_types '/velodyne_lidar/MultilevelLaserScan'
+end
 
 task_context "LaserScanner" do
    needs_configuration
@@ -14,18 +20,15 @@ task_context "LaserScanner" do
 
    property('timeout', 'int', 50).
         doc 'the read timeout in milliseconds'
-
-   property('min_range', 'double', 1.0).
-        doc 'Smaller scan ranges in meter are ignored'
-
-   property('max_range', 'double', 70.0).
-        doc 'Larger scan ranges in meter are ignored'
-
-   output_port("laser_scans", "velodyne_lidar::MultilevelLaserScan").
-        doc 'laserscans of the upper head'
    
-   output_port("laser_scans_lower_head", "velodyne_lidar::MultilevelLaserScan").
-        doc 'laserscans of the lower head. Note: this output is only available on the Velodyne HDL-64E'
+   property('use_remissions', 'bool', false)
+		doc 'activate/deactivate the output of remission values'
+
+   output_port("laser_scans", "base::samples::DepthMap").
+    doc 'laserscans of the upper head'
+   
+   output_port("laser_scans_lower_head", "base::samples::DepthMap").
+      doc 'laserscans of the lower head. Note: this output is only available on the Velodyne HDL-64E'
 
    error_states :IO_ERROR, :IO_TIMEOUT
 end
