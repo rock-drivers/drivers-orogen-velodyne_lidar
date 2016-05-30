@@ -231,7 +231,7 @@ void LaserScanner::updateHook()
         base::Time timeBetweenShots = (estimatedPacketTime - lastEstimatedPacketTime) / VELODYNE_NUM_SHOTS;
         for(unsigned i = 0; i < VELODYNE_NUM_SHOTS; i++)
         {
-            base::Time curEstimatedTime = lastEstimatedPacketTime + timeBetweenShots * 1;
+            base::Time curEstimatedTime = lastEstimatedPacketTime + timeBetweenShots * i;
             if(buffer.shots[i].lower_upper == VELODYNE_UPPER_HEADER_BYTES)
             {
                 // handle upper laser
