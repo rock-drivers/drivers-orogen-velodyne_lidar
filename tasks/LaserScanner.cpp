@@ -155,6 +155,7 @@ bool LaserScanner::startHook()
     integratedSensorTime = 0;
     lastEstimatedPacketTime = base::Time();
     timestamp_estimator->reset();
+    expectedPacketPeriod = 553;
     
     // initiate head variables
     upper_head.horizontal_scan_count = 0;
