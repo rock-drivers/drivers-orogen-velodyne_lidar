@@ -50,11 +50,10 @@ namespace velodyne_lidar {
     {
         LaserHead head_pos;
         unsigned int horizontal_scan_count;
-        aggregator::TimestampEstimator* timestamp_estimator;
-		base::samples::DepthMap dmap;
-		Buffer buffer;
-		
-        LaserHeadVariables() : horizontal_scan_count(0), timestamp_estimator(NULL) {};
+        base::Time last_sample_time;
+        base::samples::DepthMap dmap;
+        Buffer buffer;
+        LaserHeadVariables() : horizontal_scan_count(0) {};
     };
     
     protected:
@@ -64,6 +63,12 @@ namespace velodyne_lidar {
         int last_packet_period; // in microseconds
         uint32_t last_gps_timestamp; // in microseconds
         uint32_t gps_timestamp_tolerance; // in microseconds
+        
+        uint32_t expectedPacketPeriod;
+        uint64_t integratedSensorTime;
+        base::Time estimatedPacketTime;
+        base::Time lastEstimatedPacketTime;
+        aggregator::TimestampEstimator* timestamp_estimator;
                 
         /* The HDL-32E has only an upper head */
         LaserHeadVariables upper_head;
@@ -71,7 +76,7 @@ namespace velodyne_lidar {
         
     protected:
         bool isScanComplete(const LaserScanner::LaserHeadVariables& laser_vars, const base::Angle& current_angle) const;
-        void handleHorizontalScan(const velodyne_fire_t& horizontal_scan, LaserHeadVariables& laser_vars);
+        void handleHorizontalScan(const velodyne_lidar::velodyne_fire_t& horizontal_scan, velodyne_lidar::LaserScanner::LaserHeadVariables& laser_vars, const base::Time& shotTime);
         void addDummyData(const base::Angle &next_angle, LaserHeadVariables& laser_vars);
         
     private:

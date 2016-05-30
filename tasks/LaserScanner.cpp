@@ -9,13 +9,13 @@ using namespace velodyne_lidar;
 
 
 LaserScanner::LaserScanner(std::string const& name)
-    : LaserScannerBase(name)
+    : LaserScannerBase(name), timestamp_estimator(NULL)
 {
 
 }
 
 LaserScanner::LaserScanner(std::string const& name, RTT::ExecutionEngine* engine)
-    : LaserScannerBase(name, engine)
+    : LaserScannerBase(name, engine), timestamp_estimator(NULL)
 {
 }
 
@@ -30,35 +30,39 @@ bool LaserScanner::isScanComplete(const LaserScanner::LaserHeadVariables& laser_
 }
 
 
-void LaserScanner::handleHorizontalScan(const velodyne_fire_t& horizontal_scan, LaserScanner::LaserHeadVariables& laser_vars)
+void LaserScanner::handleHorizontalScan(const velodyne_fire_t& horizontal_scan, LaserScanner::LaserHeadVariables& laser_vars, const base::Time &shotTime)
 {
     base::Angle scan_angle = base::Angle::fromDeg(360.0 - (static_cast<double>(horizontal_scan.rotational_pos) * 0.01));
-   	
-	if(isScanComplete(laser_vars, scan_angle))
-	{
-		laser_vars.dmap.horizontal_size = laser_vars.horizontal_scan_count;
 
-		//handle data mapping for distances
-		handleDataMapping(laser_vars.dmap.distances, laser_vars.buffer.distances, 
-					laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
-	
-		if(_use_remissions)
-			handleDataMapping(laser_vars.dmap.remissions, laser_vars.buffer.remissions, 
-					laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
-	
-		//write sample to output port
-		if(laser_vars.head_pos == UpperHead)
-			_laser_scans.write(laser_vars.dmap);
-		else
-			_laser_scans_lower_head.write(laser_vars.dmap);
+    if(isScanComplete(laser_vars, scan_angle))
+    {
+        laser_vars.dmap.horizontal_size = laser_vars.horizontal_scan_count;
+        
+        laser_vars.dmap.time = laser_vars.last_sample_time;
 
-		resetSample(laser_vars);
-	}
+        //handle data mapping for distances
+        handleDataMapping(laser_vars.dmap.distances, laser_vars.buffer.distances, 
+                                laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
+
+        if(_use_remissions)
+                handleDataMapping(laser_vars.dmap.remissions, laser_vars.buffer.remissions, 
+                                laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
+
+        //write sample to output port
+        if(laser_vars.head_pos == UpperHead)
+                _laser_scans.write(laser_vars.dmap);
+        else
+                _laser_scans_lower_head.write(laser_vars.dmap);
+
+        resetSample(laser_vars);
+    }
+
     
-	laserdriver.collectColumn(horizontal_scan, laser_vars.buffer.distances, laser_vars.buffer.remissions, laser_vars.horizontal_scan_count, _use_remissions);
-	laser_vars.dmap.horizontal_interval.push_back(scan_angle.getRad());
-	laser_vars.dmap.timestamps.push_back(base::Time::now());
-	laser_vars.horizontal_scan_count++;
+    laserdriver.collectColumn(horizontal_scan, laser_vars.buffer.distances, laser_vars.buffer.remissions, laser_vars.horizontal_scan_count, _use_remissions);
+    laser_vars.dmap.horizontal_interval.push_back(scan_angle.getRad());
+    laser_vars.dmap.timestamps.push_back(shotTime);
+    laser_vars.horizontal_scan_count++;
+    laser_vars.last_sample_time = shotTime;
 }
 
 void LaserScanner::resetSample(LaserScanner::LaserHeadVariables& laser_vars)
@@ -83,37 +87,6 @@ void LaserScanner::handleDataMapping(std::vector<base::samples::DepthMap::scalar
 		= Eigen::Map< Buffer::CollectorMatrix > (source_container.data(), vertical_size, horizontal_size);
 }
 
-void LaserScanner::addDummyData(const base::Angle& next_angle, LaserScanner::LaserHeadVariables& laser_vars)
-{
-    if(laser_vars.horizontal_scan_count > 1)
-    {
-        // get angular resolution of the first two scans
-        base::Angle angular_resolution = base::Angle::fromRad(laser_vars.dmap.horizontal_interval.at(1) - laser_vars.dmap.horizontal_interval.front());
-        if(angular_resolution.rad > 0.0)
-        {
-            base::Angle last_angle = base::Angle::fromRad(laser_vars.dmap.horizontal_interval.back());
-            base::Angle new_angle = next_angle;
-            // limit the new angle if the scan is almost complete 
-            if(isScanComplete(laser_vars, next_angle))
-                new_angle = base::Angle::fromRad(laser_vars.dmap.horizontal_interval.front());
-            
-            base::Angle angular_gap = new_angle - last_angle;
-            if(angular_gap.rad > 0.0)
-            {
-                // fill the gap with dummy samples
-                int missing_sample_count = ((int)(angular_gap.rad / angular_resolution.rad)) - 1;
-                for(int i = 1; i <= missing_sample_count; i++)
-                {
-                    // add a dummy sample to the output scan
-                    base::Angle missing_sample_angle = last_angle + i * angular_resolution;
-                    velodyne_fire_t horizontal_scan;
-                    createHorizontalDummy(missing_sample_angle, laser_vars.head_pos, horizontal_scan);
-                    handleHorizontalScan(horizontal_scan, laser_vars);
-                }
-            }
-        }
-    }
-}
 
 bool LaserScanner::getFirstAngle(LaserHead head_pos, const velodyne_data_packet& new_scans, base::Angle& first_angle) const
 {
@@ -129,26 +102,6 @@ bool LaserScanner::getFirstAngle(LaserHead head_pos, const velodyne_data_packet&
     return false;
 }
 
-void LaserScanner::createHorizontalDummy(const base::Angle& angle, LaserScanner::LaserHead head_pos, velodyne_fire_t& horizontal_scan) const
-{
-    // set all 32 vertical scans to out of range
-    for(unsigned i = 0; i < VELODYNE_NUM_LASERS; i++)
-    {
-        horizontal_scan.lasers[i].distance = 0;
-        horizontal_scan.lasers[i].intensity = 0;
-    }
-    // set head position
-    if(head_pos == UpperHead)
-        horizontal_scan.lower_upper = VELODYNE_UPPER_HEADER_BYTES;
-    else
-        horizontal_scan.lower_upper = VELODYNE_LOWER_HEADER_BYTES;
-    // set horizontal angle
-    double angle_deg = angle.getDeg();
-    if(angle_deg < 0.0)
-        angle_deg += 360.0;
-    horizontal_scan.rotational_pos = (uint16_t)(angle_deg * 100.0);
-}
-
 
 /// The following lines are template definitions for the various state machine
 // hooks defined by Orocos::RTT. See Task.hpp for more detailed
@@ -162,8 +115,7 @@ bool LaserScanner::configureHook()
     if (! RTT::TaskContext::configureHook())
         return false;
     
-    upper_head.timestamp_estimator = new aggregator::TimestampEstimator(base::Time::fromSeconds(20), base::Time::fromMilliseconds(100));
-    lower_head.timestamp_estimator = new aggregator::TimestampEstimator(base::Time::fromSeconds(20), base::Time::fromMilliseconds(100));
+    timestamp_estimator = new aggregator::TimestampEstimator(base::Time::fromSeconds(20), base::Time::fromMilliseconds(100));
         
     return true;
 }
@@ -199,9 +151,11 @@ bool LaserScanner::startHook()
     gps_timestamp_tolerance = 100;
     static const uint SCANS_PER_TURN = 2200; // upper guess
     
+    integratedSensorTime = 0;
+    lastEstimatedPacketTime = base::Time();
+    timestamp_estimator->reset();
+    
     // initiate head variables
-    upper_head.timestamp_estimator->reset();
-    lower_head.timestamp_estimator->reset();
     upper_head.horizontal_scan_count = 0;
     lower_head.horizontal_scan_count = 0;
     upper_head.head_pos = UpperHead;
@@ -259,41 +213,40 @@ void LaserScanner::updateHook()
     
     if(size == (int)VELODYNE_DATA_MSG_BUFFER_SIZE)
     {
-        // check packet timestamp
-        if(last_gps_timestamp > 0 && last_gps_timestamp < buffer.gps_timestamp)
+        if(last_gps_timestamp != buffer.gps_timestamp)
         {
-            if(last_packet_period + gps_timestamp_tolerance < buffer.gps_timestamp - last_gps_timestamp)
+            uint32_t currentPeriod = buffer.gps_timestamp - last_gps_timestamp;
+            //check for wrap around
+            if(last_gps_timestamp > buffer.gps_timestamp)
             {
-                // handle packet lost
-                RTT::log(RTT::Info) << TaskContext::getName() << ": "
-                    << "Lost at least one data packet. Filling up the hole in the output scan with dummy data." << RTT::endlog();
-                    
-                base::Angle first_upper_angle, first_lower_angle;
-                if(getFirstAngle(UpperHead, buffer, first_upper_angle))
-                {
-                    addDummyData(first_upper_angle, upper_head);
-                }
-                if(getFirstAngle(LowerHead, buffer, first_lower_angle))
-                {
-                    addDummyData(first_lower_angle, lower_head);
-                }
+                currentPeriod = (std::numeric_limits< uint32_t >:: max() - last_gps_timestamp) + buffer.gps_timestamp;
             }
-            last_packet_period = buffer.gps_timestamp - last_gps_timestamp;
-        }
-        last_gps_timestamp = buffer.gps_timestamp;
+            integratedSensorTime += currentPeriod;
             
+            int packetCnt = integratedSensorTime / expectedPacketPeriod;
+            estimatedPacketTime = timestamp_estimator->update(base::Time::now(), packetCnt);
+        }
+        
+        base::Time timeBetweenShots = (estimatedPacketTime - lastEstimatedPacketTime) / VELODYNE_NUM_SHOTS;
         for(unsigned i = 0; i < VELODYNE_NUM_SHOTS; i++)
         {
+            base::Time curEstimatedTime = lastEstimatedPacketTime + timeBetweenShots * 1;
             if(buffer.shots[i].lower_upper == VELODYNE_UPPER_HEADER_BYTES)
             {
                 // handle upper laser
-                handleHorizontalScan(buffer.shots[i], upper_head);
+                handleHorizontalScan(buffer.shots[i], upper_head, curEstimatedTime);
             }
             else
             {
                 // handle lower laser
-                handleHorizontalScan(buffer.shots[i], lower_head);
+                handleHorizontalScan(buffer.shots[i], lower_head, curEstimatedTime);
             }
+        }
+
+        if(last_gps_timestamp != buffer.gps_timestamp)
+        {
+            last_gps_timestamp = buffer.gps_timestamp;
+            lastEstimatedPacketTime = estimatedPacketTime;
         }
     }
     else
@@ -335,7 +288,6 @@ void LaserScanner::stopHook()
 void LaserScanner::cleanupHook()
 {
     RTT::TaskContext::cleanupHook();
-    
-    delete upper_head.timestamp_estimator;
-    delete lower_head.timestamp_estimator;
+
+    delete timestamp_estimator;
 }
