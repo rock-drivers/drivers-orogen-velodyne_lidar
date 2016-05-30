@@ -115,7 +115,8 @@ bool LaserScanner::configureHook()
     if (! RTT::TaskContext::configureHook())
         return false;
     
-    timestamp_estimator = new aggregator::TimestampEstimator(base::Time::fromSeconds(20), base::Time::fromMilliseconds(100));
+    //manual page 11 says packets arrive in a time diff of 552.9 usecs
+    timestamp_estimator = new aggregator::TimestampEstimator(base::Time::fromSeconds(20), base::Time::fromMicroseconds(553));
         
     return true;
 }
