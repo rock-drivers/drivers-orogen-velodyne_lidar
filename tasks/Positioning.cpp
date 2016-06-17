@@ -5,7 +5,7 @@
 #include <rtt/extras/FileDescriptorActivity.hpp>
 #include <aggregator/TimestampEstimator.hpp>
 #include <ogr_spatialref.h>
-#include <base/float.h>
+#include <base/Float.hpp>
 
 using namespace velodyne_lidar;
 
