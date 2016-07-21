@@ -207,7 +207,7 @@ void LaserScanner::updateHook()
     {
         size = laserdriver.readPacket((uint8_t*)&buffer, VELODYNE_DATA_MSG_BUFFER_SIZE, timeout, timeout);
     }
-    catch (std::runtime_error e)
+    catch (const std::runtime_error & e)
     {
         RTT::log(RTT::Error) << TaskContext::getName() << ": " << e.what() << RTT::endlog();
         actual_state = IO_TIMEOUT;
