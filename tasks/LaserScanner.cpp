@@ -277,12 +277,11 @@ void LaserScanner::errorHook()
 }
 
 
-
 void LaserScanner::stopHook()
 {
-    RTT::TaskContext::stopHook();
-    
+    getActivity<RTT::extras::FileDescriptorActivity>()->clearAllWatches();
     laserdriver.close();
+    RTT::TaskContext::stopHook();
 }
 
 

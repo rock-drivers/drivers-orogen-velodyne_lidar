@@ -229,13 +229,9 @@ void Positioning::errorHook()
 
 void Positioning::stopHook()
 {
-    
-    RTT::TaskContext::stopHook();
-    
-
+    getActivity<RTT::extras::FileDescriptorActivity>()->clearAllWatches();
     positioning_driver.close();
-
-    
+    RTT::TaskContext::stopHook();
 }
 
 
