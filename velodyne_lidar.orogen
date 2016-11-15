@@ -15,22 +15,33 @@ typekit do
 end
 
 task_context "LaserScanner" do
-   needs_configuration
-   fd_driven
+    needs_configuration
 
-   property('timeout', 'int', 50).
-        doc 'the read timeout in milliseconds'
-   
-   property('use_remissions', 'bool', false)
-		doc 'activate/deactivate the output of remission values'
+    # The timeout on write. Defaults to one second.
+    property "io_write_timeout", "/base/Time"
 
-   output_port("laser_scans", "base::samples::DepthMap").
-    doc 'laserscans of the upper head'
-   
-   output_port("laser_scans_lower_head", "base::samples::DepthMap").
-      doc 'laserscans of the lower head. Note: this output is only available on the Velodyne HDL-64E'
+    # The timeout on read. Defaults to one second.
+    property "io_read_timeout", "/base/Time"
 
-   error_states :IO_ERROR, :IO_TIMEOUT
+    # activate/deactivate the output of remission values
+    property('use_remissions', 'bool', false)
+
+    # Only output the latest sample in every call
+    property('only_write_newest_sample', 'bool', false)
+
+    # The target size of a full scan in rotation around its axis. Default is 360 degree in rad.
+    property('full_scan_size', 'double', 6.28318)
+
+    # laserscans of the upper head
+    output_port("laser_scans", "base::samples::DepthMap")
+
+    # laserscans of the lower head. Note: this output is only available on the Velodyne HDL-64E
+    output_port("laser_scans_lower_head", "base::samples::DepthMap")
+
+    periodic 0.05
+
+    runtime_states :PACKET_LOSS
+    error_states :IO_ERROR
 end
 
 task_context "Positioning" do
