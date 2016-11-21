@@ -122,7 +122,7 @@ void LaserScanner::updateHook()
                 if(!_only_write_newest_sample.value() && valid_upper_sample)
                     _laser_scans.write(upper_sample);
                 if(!_only_write_newest_sample.value() && valid_lower_sample)
-                    _laser_scans.write(lower_sample);
+                    _laser_scans_lower_head.write(lower_sample);
             }
             no_packet_timeout.restart();
         }
@@ -134,7 +134,7 @@ void LaserScanner::updateHook()
         if(_only_write_newest_sample.value() && valid_upper_sample)
             _laser_scans.write(upper_sample);
         if(_only_write_newest_sample.value() && valid_lower_sample)
-            _laser_scans.write(lower_sample);
+            _laser_scans_lower_head.write(lower_sample);
 
         // check if packets have been lost
         uint64_t current_lost_packet_count = laserdriver->getPacketLostCount();
