@@ -4,16 +4,13 @@
 #define VELODYNE_LIDAR_LaserScanner_TASK_HPP
 
 #include "velodyne_lidar/LaserScannerBase.hpp"
-#include <velodyne_lidar/velodyneDataDriver.hpp>
+
 #include <base/samples/DepthMap.hpp>
-
-
-namespace aggregator
-{
-    class TimestampEstimator;
-}
+#include <base/Timeout.hpp>
 
 namespace velodyne_lidar {
+
+    class VelodyneDataDriver;
 
     /*! \class Task 
      * \brief The task context provides and requires services. It uses an ExecutionEngine to perform its functions.
@@ -31,60 +28,14 @@ namespace velodyne_lidar {
      */
     class LaserScanner : public LaserScannerBase
     {
-		
-	friend class LaserScannerBase;
-    
-    enum LaserHead
-    {
-        LowerHead,
-        UpperHead
-    };
-	
-	struct Buffer
-	{
-		typedef Eigen::Matrix<base::samples::DepthMap::scalar, Eigen::Dynamic, Eigen::Dynamic> CollectorMatrix;
-		CollectorMatrix distances, remissions;
-	};
-               
-    struct LaserHeadVariables
-    {
-        LaserHead head_pos;
-        unsigned int horizontal_scan_count;
-        base::Time last_sample_time;
-        base::samples::DepthMap dmap;
-        Buffer buffer;
-        LaserHeadVariables() : horizontal_scan_count(0) {};
-    };
-    
+
+    friend class LaserScannerBase;
+
     protected:
-        VelodyneDataDriver laserdriver;
-        velodyne_data_packet_t buffer;
-        States last_state;
-        int last_packet_period; // in microseconds
-        uint32_t last_gps_timestamp; // in microseconds
-        uint32_t gps_timestamp_tolerance; // in microseconds
-        
-        uint32_t expectedPacketPeriod;
-        uint64_t integratedSensorTime;
-        base::Time estimatedPacketTime;
-        base::Time lastEstimatedPacketTime;
-        aggregator::TimestampEstimator* timestamp_estimator;
-                
-        /* The HDL-32E has only an upper head */
-        LaserHeadVariables upper_head;
-        LaserHeadVariables lower_head;
-        
-    protected:
-        bool isScanComplete(const LaserScanner::LaserHeadVariables& laser_vars, const base::Angle& current_angle) const;
-        void handleHorizontalScan(const velodyne_lidar::velodyne_fire_t& horizontal_scan, velodyne_lidar::LaserScanner::LaserHeadVariables& laser_vars, const base::Time& shotTime);
-        void addDummyData(const base::Angle &next_angle, LaserHeadVariables& laser_vars);
-        
-    private:
-        bool getFirstAngle(LaserHead head_pos, const velodyne_data_packet& new_scans, base::Angle& first_angle) const;
-        void createHorizontalDummy(const base::Angle &angle, LaserHead head_pos, velodyne_fire_t& horizontal_scan) const;
-		void handleDataMapping(std::vector<base::samples::DepthMap::scalar> &target_container, Buffer::CollectorMatrix &source_container, uint32_t vertical_size, uint32_t horizontal_size);
-		void resetSample(LaserHeadVariables& laser_vars);
-		
+        VelodyneDataDriver* laserdriver;
+        uint64_t last_lost_packet_count;
+        base::Timeout no_packet_timeout;
+
     public:
         /** TaskContext constructor for Task
          * \param name Name of the task. This name needs to be unique to make it identifiable via nameservices.
@@ -101,7 +52,7 @@ namespace velodyne_lidar {
 
         /** Default deconstructor of Task
          */
-	~LaserScanner();
+        ~LaserScanner();
 
         /** This hook is called by Orocos when the state machine transitions
          * from PreOperational to Stopped. If it returns false, then the

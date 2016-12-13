@@ -3,103 +3,29 @@
 #include "LaserScanner.hpp"
 
 #include <rtt/extras/FileDescriptorActivity.hpp>
-#include <aggregator/TimestampEstimator.hpp>
+#include <rtt/base/ActionInterface.hpp>
+#include <velodyne_lidar/velodyneDataDriver.hpp>
+#include <sys/socket.h>
 
 using namespace velodyne_lidar;
 
 
 LaserScanner::LaserScanner(std::string const& name)
-    : LaserScannerBase(name), timestamp_estimator(NULL)
+    : LaserScannerBase(name), laserdriver(NULL)
 {
-
+    _io_write_timeout.set(base::Time::fromSeconds(1.0));
+    _io_read_timeout.set(base::Time::fromSeconds(1.0));
 }
 
 LaserScanner::LaserScanner(std::string const& name, RTT::ExecutionEngine* engine)
-    : LaserScannerBase(name, engine), timestamp_estimator(NULL)
+    : LaserScannerBase(name, engine), laserdriver(NULL)
 {
+    _io_write_timeout.set(base::Time::fromSeconds(1.0));
+    _io_read_timeout.set(base::Time::fromSeconds(1.0));
 }
 
 LaserScanner::~LaserScanner()
 {
-}
-
-bool LaserScanner::isScanComplete(const LaserScanner::LaserHeadVariables& laser_vars, const base::Angle& current_angle) const
-{    
-	//check if current angle crossed the last angle 
-	return (laser_vars.horizontal_scan_count > 1 && laser_vars.dmap.horizontal_interval.back() > 0 && current_angle.getRad() <= 0);
-}
-
-
-void LaserScanner::handleHorizontalScan(const velodyne_fire_t& horizontal_scan, LaserScanner::LaserHeadVariables& laser_vars, const base::Time &shotTime)
-{
-    base::Angle scan_angle = base::Angle::fromDeg(360.0 - (static_cast<double>(horizontal_scan.rotational_pos) * 0.01));
-
-    if(isScanComplete(laser_vars, scan_angle))
-    {
-        laser_vars.dmap.horizontal_size = laser_vars.horizontal_scan_count;
-        
-        laser_vars.dmap.time = laser_vars.last_sample_time;
-
-        //handle data mapping for distances
-        handleDataMapping(laser_vars.dmap.distances, laser_vars.buffer.distances, 
-                                laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
-
-        if(_use_remissions)
-                handleDataMapping(laser_vars.dmap.remissions, laser_vars.buffer.remissions, 
-                                laser_vars.dmap.vertical_size, laser_vars.dmap.horizontal_size);
-
-        //write sample to output port
-        if(laser_vars.head_pos == UpperHead)
-                _laser_scans.write(laser_vars.dmap);
-        else
-                _laser_scans_lower_head.write(laser_vars.dmap);
-
-        resetSample(laser_vars);
-    }
-
-    
-    laserdriver.collectColumn(horizontal_scan, laser_vars.buffer.distances, laser_vars.buffer.remissions, laser_vars.horizontal_scan_count, _use_remissions);
-    laser_vars.dmap.horizontal_interval.push_back(scan_angle.getRad());
-    laser_vars.dmap.timestamps.push_back(shotTime);
-    laser_vars.horizontal_scan_count++;
-    laser_vars.last_sample_time = shotTime;
-}
-
-void LaserScanner::resetSample(LaserScanner::LaserHeadVariables& laser_vars)
-{
-	//reset current sample
-	laser_vars.horizontal_scan_count = 0;
-	laser_vars.dmap.horizontal_size = 0;
-	laser_vars.dmap.horizontal_interval.clear();
-	laser_vars.dmap.timestamps.clear();
-	laser_vars.dmap.distances.clear();
-	
-	if(_use_remissions)
-		laser_vars.dmap.remissions.clear();
-}
-
-
-void LaserScanner::handleDataMapping(std::vector<base::samples::DepthMap::scalar> &target_container, Buffer::CollectorMatrix &source_container, uint32_t vertical_size, uint32_t horizontal_size)
-{
-	source_container.conservativeResize(vertical_size, horizontal_size);
-	target_container.resize(horizontal_size * vertical_size);
-	base::samples::DepthMap::DepthMatrixMap (target_container.data(), vertical_size, horizontal_size) 
-		= Eigen::Map< Buffer::CollectorMatrix > (source_container.data(), vertical_size, horizontal_size);
-}
-
-
-bool LaserScanner::getFirstAngle(LaserHead head_pos, const velodyne_data_packet& new_scans, base::Angle& first_angle) const
-{
-    for(unsigned i = 0; i < VELODYNE_NUM_SHOTS; i++)
-    {
-        if((head_pos == UpperHead && new_scans.shots[i].lower_upper == VELODYNE_UPPER_HEADER_BYTES) || 
-           (head_pos == LowerHead && new_scans.shots[i].lower_upper == VELODYNE_LOWER_HEADER_BYTES))
-        {
-            first_angle = base::Angle::fromDeg(360.0 - ((static_cast<double>(new_scans.shots[i].rotational_pos)) * 0.01));
-            return true;
-        }
-    }
-    return false;
 }
 
 
@@ -107,188 +33,148 @@ bool LaserScanner::getFirstAngle(LaserHead head_pos, const velodyne_data_packet&
 // hooks defined by Orocos::RTT. See Task.hpp for more detailed
 // documentation about them.
 
-
-
-
 bool LaserScanner::configureHook()
 {
     if (! RTT::TaskContext::configureHook())
         return false;
-    
-    //manual page 11 says packets arrive in a time diff of 552.9 usecs
-    timestamp_estimator = new aggregator::TimestampEstimator(base::Time::fromSeconds(20), base::Time::fromMicroseconds(553));
-        
-    return true;
-}
 
+    delete laserdriver;
+    laserdriver = NULL;
+    laserdriver = new VelodyneDataDriver();
 
-
-bool LaserScanner::startHook()
-{
-    
-    if (! RTT::TaskContext::startHook())
-        return false;
-    
     // setup udp server
-    laserdriver.openUDP("", VELODYNE_DATA_UDP_PORT);
-    
+    laserdriver->openUDP("", VELODYNE_DATA_UDP_PORT);
+    laserdriver->setReadTimeout(base::Time::fromSeconds(0.5/VELODYNE_DRIVER_BROADCAST_FREQ_HZ));
+    laserdriver->setWriteTimeout(_io_write_timeout.value());
+    laserdriver->setScanSize(_full_scan_size.value());
+    no_packet_timeout = base::Timeout(_io_read_timeout.value());
+
     // trigger the update hook on fd activity
     RTT::extras::FileDescriptorActivity* fd_activity =
         getActivity<RTT::extras::FileDescriptorActivity>();
     if (fd_activity)
     {
-        fd_activity->watch(laserdriver.getFileDescriptor());
+        fd_activity->watch(laserdriver->getFileDescriptor());
+        fd_activity->setTimeout(_io_read_timeout.get().toMilliseconds());
     }
-    else
-    {
-        RTT::log(RTT::Error) << TaskContext::getName() << ": "
-                    << "Error: the task needs to be fd driven." << RTT::endlog();
-        return false;
-    }
-    
-    last_state = PRE_OPERATIONAL;
-    last_packet_period = 1000000;
-    last_gps_timestamp = 0;
-    gps_timestamp_tolerance = 100;
-    static const uint SCANS_PER_TURN = 2200; // upper guess
-    
-    integratedSensorTime = 0;
-    lastEstimatedPacketTime = base::Time();
-    timestamp_estimator->reset();
-    expectedPacketPeriod = 553;
-    
-    // initiate head variables
-    upper_head.horizontal_scan_count = 0;
-    lower_head.horizontal_scan_count = 0;
-    upper_head.head_pos = UpperHead;
-    lower_head.head_pos = LowerHead;
-	
-	// initiate depthmap variables
-	upper_head.dmap.horizontal_projection = base::samples::DepthMap::POLAR;
-	lower_head.dmap.horizontal_projection = base::samples::DepthMap::POLAR;
-	upper_head.dmap.vertical_projection = base::samples::DepthMap::POLAR;
-	lower_head.dmap.vertical_projection = base::samples::DepthMap::POLAR;
-	upper_head.dmap.vertical_interval.push_back(base::Angle::deg2Rad(VELODYNE_VERTICAL_START_ANGLE));
-	lower_head.dmap.vertical_interval.push_back(base::Angle::deg2Rad(VELODYNE_VERTICAL_START_ANGLE));
-	upper_head.dmap.vertical_interval.push_back(base::Angle::deg2Rad(VELODYNE_VERTICAL_END_ANGLE));
-	lower_head.dmap.vertical_interval.push_back(base::Angle::deg2Rad(VELODYNE_VERTICAL_END_ANGLE));
-	upper_head.dmap.vertical_size = VELODYNE_NUM_LASERS;
-	lower_head.dmap.vertical_size = VELODYNE_NUM_LASERS;
-	
-	upper_head.dmap.distances.reserve(VELODYNE_NUM_LASERS * SCANS_PER_TURN);
-	lower_head.dmap.distances.reserve(VELODYNE_NUM_LASERS * SCANS_PER_TURN);
 
-    //init buffer
-    upper_head.buffer.distances = Buffer::CollectorMatrix(VELODYNE_NUM_LASERS, SCANS_PER_TURN);
-    lower_head.buffer.distances = Buffer::CollectorMatrix(VELODYNE_NUM_LASERS, SCANS_PER_TURN);
-	
-	if(_use_remissions)
-	{
-		upper_head.dmap.remissions.reserve(VELODYNE_NUM_LASERS * SCANS_PER_TURN);
-		lower_head.dmap.remissions.reserve(VELODYNE_NUM_LASERS * SCANS_PER_TURN);
-		upper_head.buffer.remissions = Buffer::CollectorMatrix(VELODYNE_NUM_LASERS, SCANS_PER_TURN);
-		lower_head.buffer.remissions = Buffer::CollectorMatrix(VELODYNE_NUM_LASERS, SCANS_PER_TURN);
-	}
+    RTT::base::ActivityInterface* activity = getActivity();
+    if (activity && !fd_activity)
+    {
+        // check socket receive buffer size
+        int expected_buffer_size = (double)(VELODYNE_DATA_MSG_BUFFER_SIZE + 52) * VELODYNE_DRIVER_BROADCAST_FREQ_HZ * activity->getPeriod() * 1.5;
+        if(setsockopt(laserdriver->getFileDescriptor(), SOL_SOCKET, SO_RCVBUF, &expected_buffer_size, sizeof(expected_buffer_size)) < 0)
+        {
+            RTT::log(RTT::Error) << "Failed to set the socket receive buffer size. " << strerror(errno) << RTT::endlog();
+            return false;
+        }
+
+        int current_buffer_size = 0;
+        socklen_t current_buffer_size_len = sizeof(current_buffer_size);
+        if(getsockopt(laserdriver->getFileDescriptor(), SOL_SOCKET, SO_RCVBUF, &current_buffer_size, &current_buffer_size_len) < 0)
+        {
+            RTT::log(RTT::Error) << "Failed to get the socket receive buffer size. " << strerror(errno) << RTT::endlog();
+            return false;
+        }
+        // Note that the kernel already doubles the buffer size to compensate for bookkeeping overhead
+        if(current_buffer_size < expected_buffer_size * 2)
+        {
+            double min_period = current_buffer_size / ((double)(VELODYNE_DATA_MSG_BUFFER_SIZE + 52) * VELODYNE_DRIVER_BROADCAST_FREQ_HZ * 3.0);
+            RTT::log(RTT::Error) << "Failed to set the socket receive buffer size to " << expected_buffer_size << "\n" <<
+                                    "Either increase the period in which this task is triggered to at least " << min_period << "\n" <<
+                                    "or change the systems max buffer size in /proc/sys/net/core/rmem_max accordingly." << RTT::endlog();
+            return false;
+        }
+    }
 
     return true;
 }
 
+bool LaserScanner::startHook()
+{
+    if (! RTT::TaskContext::startHook())
+        return false;
 
+    no_packet_timeout.restart();
+
+    return true;
+}
 
 void LaserScanner::updateHook()
 {
     RTT::TaskContext::updateHook();
-    
-    States actual_state = RUNNING;
-    
-    base::Time timeout = base::Time::fromMilliseconds(_timeout.get());
-    int size = 0;
-    try 
+
+    bool valid_upper_sample = false;
+    bool valid_lower_sample = false;
+    base::samples::DepthMap upper_sample;
+    base::samples::DepthMap lower_sample;
+
+    try
     {
-        size = laserdriver.readPacket((uint8_t*)&buffer, VELODYNE_DATA_MSG_BUFFER_SIZE, timeout, timeout);
+        while(laserdriver->readNewPacket())
+        {
+            if(laserdriver->isScanComplete())
+            {
+                valid_upper_sample = laserdriver->convertScanToSample(upper_sample, velodyne_lidar::UpperHead, _use_remissions.value());
+                valid_lower_sample = laserdriver->convertScanToSample(lower_sample, velodyne_lidar::LowerHead, _use_remissions.value());
+
+                // write out new samples
+                if(!_only_write_newest_sample.value() && valid_upper_sample)
+                    _laser_scans.write(upper_sample);
+                if(!_only_write_newest_sample.value() && valid_lower_sample)
+                    _laser_scans_lower_head.write(lower_sample);
+            }
+            no_packet_timeout.restart();
+        }
+
+        if(no_packet_timeout.elapsed())
+            throw std::runtime_error("Read timeout! Received no new packets from the sensor.");
+
+        // write latest samples after buffer was red out
+        if(_only_write_newest_sample.value() && valid_upper_sample)
+            _laser_scans.write(upper_sample);
+        if(_only_write_newest_sample.value() && valid_lower_sample)
+            _laser_scans_lower_head.write(lower_sample);
+
+        // check if packets have been lost
+        uint64_t current_lost_packet_count = laserdriver->getPacketLostCount();
+        uint64_t recently_lost_packets = current_lost_packet_count - last_lost_packet_count;
+        last_lost_packet_count = current_lost_packet_count;
+        if(recently_lost_packets > 0)
+        {
+            RTT::log(RTT::Info) << recently_lost_packets << " packets have been lost recently!" << RTT::endlog();
+            state(PACKET_LOSS);
+        }
+        else if(state() != RUNNING)
+            state(RUNNING);
+
     }
     catch (const std::runtime_error & e)
     {
         RTT::log(RTT::Error) << TaskContext::getName() << ": " << e.what() << RTT::endlog();
-        actual_state = IO_TIMEOUT;
+        exception(IO_ERROR);
     }
-    
-    if(size == (int)VELODYNE_DATA_MSG_BUFFER_SIZE)
-    {
-        if(last_gps_timestamp != buffer.gps_timestamp)
-        {
-            uint32_t currentPeriod = buffer.gps_timestamp - last_gps_timestamp;
-            //check for wrap around
-            if(last_gps_timestamp > buffer.gps_timestamp)
-            {
-                currentPeriod = (std::numeric_limits< uint32_t >:: max() - last_gps_timestamp) + buffer.gps_timestamp;
-            }
-            integratedSensorTime += currentPeriod;
-            
-            int packetCnt = integratedSensorTime / expectedPacketPeriod;
-            estimatedPacketTime = timestamp_estimator->update(base::Time::now(), packetCnt);
-        }
-        
-        base::Time timeBetweenShots = (estimatedPacketTime - lastEstimatedPacketTime) / VELODYNE_NUM_SHOTS;
-        for(unsigned i = 0; i < VELODYNE_NUM_SHOTS; i++)
-        {
-            base::Time curEstimatedTime = lastEstimatedPacketTime + timeBetweenShots * i;
-            if(buffer.shots[i].lower_upper == VELODYNE_UPPER_HEADER_BYTES)
-            {
-                // handle upper laser
-                handleHorizontalScan(buffer.shots[i], upper_head, curEstimatedTime);
-            }
-            else
-            {
-                // handle lower laser
-                handleHorizontalScan(buffer.shots[i], lower_head, curEstimatedTime);
-            }
-        }
-
-        if(last_gps_timestamp != buffer.gps_timestamp)
-        {
-            last_gps_timestamp = buffer.gps_timestamp;
-            lastEstimatedPacketTime = estimatedPacketTime;
-        }
-    }
-    else
-    {
-        RTT::log(RTT::Error) << TaskContext::getName() << ": "
-            << "Received an unknown packet of size " << size 
-            << ". Velodyne data message should be of size " 
-            << VELODYNE_DATA_MSG_BUFFER_SIZE << RTT::endlog();
-        actual_state = IO_ERROR;
-    }
-    
-    // write state if it has changed
-    if(last_state != actual_state)
-    {
-        last_state = actual_state;
-        state(actual_state);
-    }
-    
 }
-
-
 
 void LaserScanner::errorHook()
 {
     RTT::TaskContext::errorHook();
 }
 
-
 void LaserScanner::stopHook()
 {
-    getActivity<RTT::extras::FileDescriptorActivity>()->clearAllWatches();
-    laserdriver.close();
     RTT::TaskContext::stopHook();
 }
-
-
 
 void LaserScanner::cleanupHook()
 {
     RTT::TaskContext::cleanupHook();
 
-    delete timestamp_estimator;
+    RTT::extras::FileDescriptorActivity* fd_activity = getActivity<RTT::extras::FileDescriptorActivity>();
+    if(fd_activity)
+        fd_activity->clearAllWatches();
+    laserdriver->close();
+
+    delete laserdriver;
+    laserdriver = NULL;
 }
