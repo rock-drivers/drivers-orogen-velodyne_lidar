@@ -7,6 +7,7 @@ import_types_from "aggregator"
 import_types_from "base"
 import_types_from "velodyne_lidar/gps_rmc_type.h"
 import_types_from "velodyne_lidar/MultilevelLaserScan.h"
+import_types_from "VelodyneLidarTypes.hpp"
 
 ## Export deprecated MultilevelLaserScan type
 ## in order to support backward compatibility.
@@ -16,6 +17,9 @@ end
 
 task_context "LaserScanner" do
     needs_configuration
+
+    # The HDL-32E and VLP-16 are currently supported
+    property "sensor_type", "/velodyne_lidar/VelodyneSensor", :HDL32E
 
     # The timeout on write. Defaults to one second.
     property "io_write_timeout", "/base/Time"
@@ -35,7 +39,7 @@ task_context "LaserScanner" do
     # laserscans of the upper head
     output_port("laser_scans", "base::samples::DepthMap")
 
-    # laserscans of the lower head. Note: this output is only available on the Velodyne HDL-64E
+    # laserscans of the lower head. Note: this output is unused at the moment.
     output_port("laser_scans_lower_head", "base::samples::DepthMap")
 
     periodic 0.05

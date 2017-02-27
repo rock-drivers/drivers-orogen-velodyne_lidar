@@ -4,8 +4,10 @@
 
 #include <rtt/extras/FileDescriptorActivity.hpp>
 #include <rtt/base/ActionInterface.hpp>
-#include <velodyne_lidar/velodyneDataDriver.hpp>
+#include <velodyne_lidar/VelodyneHDL32EDriver.hpp>
+#include <velodyne_lidar/VelodyneVLP16Driver.hpp>
 #include <sys/socket.h>
+#include "VelodyneLidarTypes.hpp"
 
 using namespace velodyne_lidar;
 
@@ -40,11 +42,25 @@ bool LaserScanner::configureHook()
 
     delete laserdriver;
     laserdriver = NULL;
-    laserdriver = new VelodyneDataDriver();
+
+    if(_sensor_type.value() == HDL64E)
+    {
+        RTT::log(RTT::Error) << "The HDL-64E is currently not supported!" << RTT::endlog();
+        return false;
+    }
+    else if(_sensor_type.value() == HDL32E)
+        laserdriver = new VelodyneHDL32EDriver();
+    else if(_sensor_type.value() == VLP16)
+        laserdriver = new VelodyneVLP16Driver();
+    else
+    {
+        RTT::log(RTT::Error) << "No valid sensor type selected!" << RTT::endlog();
+        return false;
+    }
 
     // setup udp server
     laserdriver->openUDP("", VELODYNE_DATA_UDP_PORT);
-    laserdriver->setReadTimeout(base::Time::fromSeconds(0.5/VELODYNE_DRIVER_BROADCAST_FREQ_HZ));
+    laserdriver->setReadTimeout(base::Time::fromSeconds(0.5/laserdriver->getBroadcastFrequency()));
     laserdriver->setWriteTimeout(_io_write_timeout.value());
     laserdriver->setScanSize(_full_scan_size.value());
     no_packet_timeout = base::Timeout(_io_read_timeout.value());
@@ -62,7 +78,7 @@ bool LaserScanner::configureHook()
     if (activity && !fd_activity)
     {
         // check socket receive buffer size
-        int expected_buffer_size = (double)(VELODYNE_DATA_MSG_BUFFER_SIZE + 52) * VELODYNE_DRIVER_BROADCAST_FREQ_HZ * activity->getPeriod() * 1.5;
+        int expected_buffer_size = (double)(VELODYNE_DATA_MSG_BUFFER_SIZE + 52) * laserdriver->getBroadcastFrequency() * activity->getPeriod() * 1.5;
         if(setsockopt(laserdriver->getFileDescriptor(), SOL_SOCKET, SO_RCVBUF, &expected_buffer_size, sizeof(expected_buffer_size)) < 0)
         {
             RTT::log(RTT::Error) << "Failed to set the socket receive buffer size. " << strerror(errno) << RTT::endlog();
@@ -79,7 +95,7 @@ bool LaserScanner::configureHook()
         // Note that the kernel already doubles the buffer size to compensate for bookkeeping overhead
         if(current_buffer_size < expected_buffer_size * 2)
         {
-            double min_period = current_buffer_size / ((double)(VELODYNE_DATA_MSG_BUFFER_SIZE + 52) * VELODYNE_DRIVER_BROADCAST_FREQ_HZ * 3.0);
+            double min_period = current_buffer_size / ((double)(VELODYNE_DATA_MSG_BUFFER_SIZE + 52) * laserdriver->getBroadcastFrequency() * 3.0);
             RTT::log(RTT::Error) << "Failed to set the socket receive buffer size to " << expected_buffer_size << "\n" <<
                                     "Either increase the period in which this task is triggered to at least " << min_period << "\n" <<
                                     "or change the systems max buffer size in /proc/sys/net/core/rmem_max accordingly." << RTT::endlog();
@@ -104,8 +120,7 @@ void LaserScanner::updateHook()
 {
     RTT::TaskContext::updateHook();
 
-    bool valid_upper_sample = false;
-    bool valid_lower_sample = false;
+    bool valid_sample = false;
     base::samples::DepthMap upper_sample;
     base::samples::DepthMap lower_sample;
 
@@ -115,14 +130,11 @@ void LaserScanner::updateHook()
         {
             if(laserdriver->isScanComplete())
             {
-                valid_upper_sample = laserdriver->convertScanToSample(upper_sample, velodyne_lidar::UpperHead, _use_remissions.value());
-                valid_lower_sample = laserdriver->convertScanToSample(lower_sample, velodyne_lidar::LowerHead, _use_remissions.value());
+                valid_sample = laserdriver->convertScanToSample(upper_sample, _use_remissions.value());
 
                 // write out new samples
-                if(!_only_write_newest_sample.value() && valid_upper_sample)
+                if(!_only_write_newest_sample.value() && valid_sample)
                     _laser_scans.write(upper_sample);
-                if(!_only_write_newest_sample.value() && valid_lower_sample)
-                    _laser_scans_lower_head.write(lower_sample);
             }
             no_packet_timeout.restart();
         }
@@ -131,10 +143,8 @@ void LaserScanner::updateHook()
             throw std::runtime_error("Read timeout! Received no new packets from the sensor.");
 
         // write latest samples after buffer was red out
-        if(_only_write_newest_sample.value() && valid_upper_sample)
+        if(_only_write_newest_sample.value() && valid_sample)
             _laser_scans.write(upper_sample);
-        if(_only_write_newest_sample.value() && valid_lower_sample)
-            _laser_scans_lower_head.write(lower_sample);
 
         // check if packets have been lost
         uint64_t current_lost_packet_count = laserdriver->getPacketLostCount();
