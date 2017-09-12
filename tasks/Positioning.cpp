@@ -218,6 +218,11 @@ void Positioning::updateHook()
                 orientation_output_ports[i]->write(imu_data);
             }
             
+            double temperature[3]; // ignored at the moment
+            positioning_driver.convertIMUReadingsCalibrated(buffer.orientations, imu_data.gyro.data(), imu_data.acc.data(), temperature);
+
+            _calibrated_imu.write(imu_data);
+
         }
         catch (const std::runtime_error & e)
         {
