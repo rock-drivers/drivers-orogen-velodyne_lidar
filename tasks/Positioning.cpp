@@ -133,45 +133,79 @@ void Positioning::updateHook()
         
         try 
         {
+            base::Time timestamp;
             // handle gps data
             GPS_RMC gps_data;
-            positioning_driver.convertNMEASentence(buffer.nmea_sentence, gps_data);
-            _gps_raw_data.write(gps_data);
-            // get local utc time zone
-            time_t local_time;
-            time(&local_time);
-            struct tm* local_time_info = localtime(&local_time);
-            // estimate timestamp in local time
-            base::Time timestamp = timestamp_estimator->update(gps_data.utc_time + base::Time::fromSeconds((int64_t)local_time_info->tm_gmtoff));
-            
-            // if there is a valid reading, then write it to position readings port
-            if(gps_data.status == ValidPosition && gps_data.signal_mode != InvalidMode)
-            { 
-                double la = (gps_data.latitude_hemisphere == North ? gps_data.latitude : gps_data.latitude * -1.0);
-                double lo = (gps_data.longitude_hemisphere == East ? gps_data.longitude : gps_data.longitude * -1.0);
-                double alt = 0.0;
+            const std::string nmea_string(buffer.nmea_sentence);
+            if(!nmea_string.empty())
+            {
+                positioning_driver.convertNMEASentence(buffer.nmea_sentence, gps_data);
+                _gps_raw_data.write(gps_data);
+                // get local utc time zone
+                time_t local_time;
+                time(&local_time);
+                struct tm* local_time_info = localtime(&local_time);
+                // estimate timestamp in local time
+                timestamp = timestamp_estimator->update(gps_data.utc_time + base::Time::fromSeconds((int64_t)local_time_info->tm_gmtoff));
+                // if there is a valid reading, then write it to position readings port
+                if(gps_data.status == ValidPosition && gps_data.signal_mode != InvalidMode)
+                {
+                    double la = (gps_data.latitude_hemisphere == North ? gps_data.latitude : gps_data.latitude * -1.0);
+                    double lo = (gps_data.longitude_hemisphere == East ? gps_data.longitude : gps_data.longitude * -1.0);
+                    double alt = 0.0;
 
-                coTransform->Transform(1, &lo, &la, &alt);
-                base::samples::RigidBodyState pos;
-                pos.time = timestamp;
-                pos.position.x() = lo - _origin.value().x();
-                pos.position.y() = la - _origin.value().y();
-                pos.position.z() = base::unknown<double>();
-                
-                base::Vector3d angular_velocity = Eigen::AngleAxisd(base::Angle::fromDeg(gps_data.angle).getRad(), base::Vector3d::UnitZ()) * base::Vector3d::UnitX();
-                pos.angular_velocity = angular_velocity * (gps_data.speed * 0.51444); // knots to m/s
-                
-                _position_samples.write(pos);
+                    coTransform->Transform(1, &lo, &la, &alt);
+                    base::samples::RigidBodyState pos;
+                    pos.time = timestamp;
+                    pos.position.x() = lo - _origin.value().x();
+                    pos.position.y() = la - _origin.value().y();
+                    pos.position.z() = base::unknown<double>();
+
+                    base::Vector3d angular_velocity = Eigen::AngleAxisd(base::Angle::fromDeg(gps_data.angle).getRad(), base::Vector3d::UnitZ()) * base::Vector3d::UnitX();
+                    pos.angular_velocity = angular_velocity * (gps_data.speed * 0.51444); // knots to m/s
+
+                    _position_samples.write(pos);
+                }
+            }
+            else
+            {
+                timestamp = base::Time::now(); // FIXME make better estimate using internal timestamp
             }
             
             // handle motion values
             base::samples::IMUSensors imu_data;
             imu_data.time = timestamp;
             // invalidate values
-            imu_data.acc = base::Vector3d::Ones() * base::NaN<double>();
-            imu_data.gyro = base::Vector3d::Ones() * base::NaN<double>();
-            imu_data.mag = base::Vector3d::Ones() * base::NaN<double>();
+            imu_data.acc = base::Vector3d::Constant(base::NaN<double>());
+            imu_data.gyro= base::Vector3d::Constant(base::NaN<double>());
+            imu_data.mag = base::Vector3d::Constant(base::NaN<double>());
             // write the raw orientation readings to output ports
+            static uint32_t last_orientation_time = -1, avgcount = 0, dt_min = -1, dt_max=0;
+            static float sumT=0.0f, sumT2 = 0.0f;
+            if(last_orientation_time+1 != 0)
+            {
+                uint32_t dt = buffer.gps_timestamp - last_orientation_time;
+                if(last_orientation_time > buffer.gps_timestamp)
+                    dt += 60u*60u*1000u*1000u; // micro seconds per hour
+                _dt.write(int(dt));
+//                static const int T = 1360;
+//                dt = ((dt + T/2) % T) - T/2;
+                if(avgcount>=1024)
+                {
+                    float mean = sumT/avgcount;
+                    float var = sumT2/avgcount - mean*mean;
+                    std::cout << "dt mu=" << mean << ", sigma "<< std::sqrt(var) << "  min " << dt_min << ", max " << dt_max << "\n";
+                    avgcount = 0;
+                    sumT = sumT2 = 0.0f;
+                    dt_min = dt_max = dt;
+                }
+                dt_min = std::min(dt_min, dt);
+                dt_max = std::max(dt_max, dt);
+                sumT += dt;
+                sumT2 += float(dt)*float(dt);
+                ++avgcount;
+            }
+            last_orientation_time = buffer.gps_timestamp;
             for(unsigned i = 0; i < VELODYNE_ORIENTATION_READINGS; i++)
             {
                 double gyro, temp, accel_x, accel_y;
@@ -219,10 +253,6 @@ void Positioning::errorHook()
     
     RTT::TaskContext::errorHook();
     
-
-    
-
-    
 }
 
 
@@ -238,12 +268,8 @@ void Positioning::stopHook()
 
 void Positioning::cleanupHook()
 {
+    delete timestamp_estimator;
     
     RTT::TaskContext::cleanupHook();
-    
-
-    delete timestamp_estimator;
-
-    
 }
 

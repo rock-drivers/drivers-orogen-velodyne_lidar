@@ -74,5 +74,6 @@ task_context "Positioning" do
     output_port('orientation_sensors_3', '/base/samples/IMUSensors').
         doc 'provides the third raw set of orientation readings. 1-axis gryrometer and 2-axis accelerometer'
 
+    output_port('dt', 'int').doc 'deltaT since last packet according to internal clock'
     error_states :IO_ERROR, :IO_TIMEOUT
 end
