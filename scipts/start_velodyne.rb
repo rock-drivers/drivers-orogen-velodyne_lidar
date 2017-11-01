@@ -9,6 +9,8 @@ Orocos.run "velodyne_lidar::LaserScanner" => "velodyne", "velodyne_lidar::Positi
     
     ## setup velodyne driver
     velodyne = TaskContext.get 'velodyne'
+    # select :HDL32E or :VLP16
+    velodyne.sensor_type = :HDL32E
     velodyne.configure
     velodyne.start
 
