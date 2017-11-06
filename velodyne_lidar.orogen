@@ -35,6 +35,10 @@ task_context "LaserScanner" do
 
     # The target size of a full scan in rotation around its axis. Default is 360 degree in rad.
     property('full_scan_size', 'double', 6.28318)
+    
+    # Defines the minimum sensing distance of the device in meters.
+    # Accordig to the datasheet it should be at 1 meter.
+    property('min_sensing_distance', 'double', 1.0)
 
     # laserscans of the upper head
     output_port("laser_scans", "base::samples::DepthMap")

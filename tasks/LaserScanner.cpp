@@ -63,6 +63,7 @@ bool LaserScanner::configureHook()
     laserdriver->setReadTimeout(base::Time::fromSeconds(0.5/laserdriver->getBroadcastFrequency()));
     laserdriver->setWriteTimeout(_io_write_timeout.value());
     laserdriver->setScanSize(_full_scan_size.value());
+    laserdriver->setMinSensingDistance(_min_sensing_distance.value());
     no_packet_timeout = base::Timeout(_io_read_timeout.value());
 
     // trigger the update hook on fd activity
